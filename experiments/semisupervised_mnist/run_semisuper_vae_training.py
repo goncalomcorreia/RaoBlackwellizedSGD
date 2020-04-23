@@ -40,6 +40,10 @@ parser.add_argument('--grad_estimator',
                     type=str, default='reinforce',
                     help='type of gradient estimator. One of reinforce, reinforce_double_bs, relax, gumbel, nvil')
 
+parser.add_argument('--normalizer',
+                    type=str, default='softmax',
+                    help='softmax, entmax15 or sparsemax')
+
 # whether to only train on labeled data
 parser.add_argument('--train_labeled_only',
                     type=distutils.util.strtobool, default='False')
@@ -120,7 +124,7 @@ test_loader = torch.utils.data.DataLoader(
 slen = train_set_labeled[0]['image'].shape[0]
 
 vae, classifier = mnist_vae_lib.get_mnist_vae_and_classifier(
-                        latent_dim = 8,
+                        latent_dim = 5,
                         n_classes = 10,
                         slen = slen)
 
@@ -203,4 +207,5 @@ ss_lib.train_semisuper_vae(vae, classifier,
                 save_every = args.save_every,
                 print_every = args.print_every,
                 train_labeled_only = args.train_labeled_only,
-                baseline_optimizer = bs_optimizer)
+                baseline_optimizer = bs_optimizer,
+                normalizer = args.normalizer)

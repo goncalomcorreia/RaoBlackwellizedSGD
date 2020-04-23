@@ -141,16 +141,23 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
         # compute gradient estimate
         grad_summed = \
                 grad_estimator(conditional_loss_fun, log_class_weights,
-                                class_weights, seq_tensor, \
-                                z_sample = summed_indx,
-                                epoch = epoch,
-                                data = data,
-                                **grad_estimator_kwargs)
+                               class_weights, seq_tensor, \
+                               z_sample = summed_indx,
+                               epoch = epoch,
+                               data = data,
+                               **grad_estimator_kwargs)
 
         # sum
         summed_weights = class_weights[seq_tensor, summed_indx].squeeze()
+        # watch out for zero * -inf. we want that to be 0
+        nz = (summed_weights > 0).to(summed_weights.device)
+        summed_term_aux = torch.where(
+                nz,
+                grad_summed * summed_weights,
+                torch.tensor(0., device=summed_weights.device, dtype=torch.float))
+
         summed_term = summed_term + \
-                        (grad_summed * summed_weights).sum()
+                        (summed_term_aux).sum()
 
     ############################
     # compute sampled term
@@ -174,8 +181,13 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
                                 epoch = epoch,
                                 data = data,
                                 **grad_estimator_kwargs)
-
     else:
         grad_sampled = 0.
 
-    return (grad_sampled * sampled_weight.squeeze()).sum() + summed_term
+    nz = (sampled_weight.squeeze() > 0).to(sampled_weight.device)
+    grad_term_aux = torch.where(
+            nz,
+            grad_sampled * sampled_weight.squeeze(),
+            torch.tensor(0., device=summed_weights.device, dtype=torch.float))
+    return (grad_term_aux).sum() + summed_term
+

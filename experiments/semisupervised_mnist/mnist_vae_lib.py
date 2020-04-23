@@ -76,7 +76,7 @@ class Classifier(nn.Module):
         self.fc3 = nn.Linear(256, 256)
         self.fc4 = nn.Linear(256, n_classes)
 
-        self.log_softmax = nn.LogSoftmax(dim=1)
+        # self.log_softmax = nn.LogSoftmax(dim=1)
 
 
     def forward(self, image):
@@ -87,7 +87,7 @@ class Classifier(nn.Module):
         h = F.relu(self.fc3(h))
         h = self.fc4(h)
 
-        return self.log_softmax(h)
+        return h
 
 class MLPDecoder(nn.Module):
     def __init__(self, latent_dim = 5,

@@ -36,9 +36,9 @@ class MNISTDataSet(Dataset):
                                                 train = train_set)
 
         if train_set:
-            n_image_full = len(self.mnist_data_set.train_labels)
+            n_image_full = len(self.mnist_data_set.targets)
         else:
-            n_image_full = len(self.mnist_data_set.test_labels)
+            n_image_full = len(self.mnist_data_set.targets)
 
         # we may wish to subset
         if indices is None:
@@ -54,7 +54,7 @@ class MNISTDataSet(Dataset):
 
     def __getitem__(self, idx):
         return {'image' : self.mnist_data_set[self.sample_indx[idx]][0].squeeze(),
-                'label' : self.mnist_data_set[self.sample_indx[idx]][1].squeeze()}
+                'label' : self.mnist_data_set[self.sample_indx[idx]][1]}
 
 def get_mnist_dataset_semisupervised(data_dir = './mnist_data/',
                                 train_test_split_folder = './test_train_splits/',
