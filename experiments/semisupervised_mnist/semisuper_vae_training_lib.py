@@ -122,11 +122,11 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
         scores = classifier.forward(unlabeled_image)
 
         if normalizer == 'softmax':
-            log_class_weights = torch.log_softmax(scores, dim=-1)
+            class_weights = torch.softmax(scores, dim=-1)
         elif normalizer == 'entmax15':
-            log_class_weights = torch.log(entmax15(scores, dim=-1))
+            class_weights = entmax15(scores, dim=-1)
         elif normalizer == 'sparsemax':
-            log_class_weights = torch.log(sparsemax(scores, dim=-1))
+            class_weights = sparsemax(scores, dim=-1)
         else:
             raise NameError("%s is not a valid normalizer!" % (normalizer, ))
 
@@ -146,7 +146,7 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
                                 unlabeled_image, z)
             unlabeled_ps_loss = 0.0
             for i in range(n_samples):
-                unlabeled_ps_loss_ = rb_lib.get_raoblackwell_ps_loss(f_z, log_class_weights,
+                unlabeled_ps_loss_ = rb_lib.get_raoblackwell_ps_loss(f_z, class_weights,
                                 topk = topk,
                                 epoch = epoch,
                                 data = unlabeled_image,
@@ -157,7 +157,7 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
 
             unlabeled_ps_loss = unlabeled_ps_loss / max(n_samples, 1)
 
-            kl_q = - torch.sum(entropy(torch.exp(log_class_weights)))
+            kl_q = - torch.sum(entropy(class_weights))
             # kl_q = torch.sum(torch.exp(log_q) * log_q)
 
             total_ps_loss = \
@@ -241,19 +241,19 @@ def train_semisuper_vae(vae, classifier,
     for epoch in range(epoch_start, epochs+1):
 
         t0 = time.time()
-        with autograd.detect_anomaly():
-            loss = eval_semisuper_vae(vae, classifier, train_loader, super_loss,
-                                loader_labeled = loader_labeled,
-                                topk = topk,
-                                n_samples = n_samples,
-                                grad_estimator = grad_estimator,
-                                grad_estimator_kwargs = grad_estimator_kwargs,
-                                train = True,
-                                optimizer = optimizer,
-                                train_labeled_only = train_labeled_only,
-                                epoch = epoch,
-                                baseline_optimizer = baseline_optimizer,
-                                normalizer=normalizer)
+
+        loss = eval_semisuper_vae(vae, classifier, train_loader, super_loss,
+                            loader_labeled = loader_labeled,
+                            topk = topk,
+                            n_samples = n_samples,
+                            grad_estimator = grad_estimator,
+                            grad_estimator_kwargs = grad_estimator_kwargs,
+                            train = True,
+                            optimizer = optimizer,
+                            train_labeled_only = train_labeled_only,
+                            epoch = epoch,
+                            baseline_optimizer = baseline_optimizer,
+                            normalizer=normalizer)
 
         elapsed = time.time() - t0
         print('[{}] unlabeled_loss: {:.10g}  \t[{:.1f} seconds]'.format(\

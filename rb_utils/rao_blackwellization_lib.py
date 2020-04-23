@@ -80,7 +80,7 @@ def get_full_loss(conditional_loss_fun, class_weights):
 
     return full_loss.sum()
 
-def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
+def get_raoblackwell_ps_loss(conditional_loss_fun, class_weights, topk,
                         grad_estimator,
                         grad_estimator_kwargs = {'grad_estimator_kwargs': None},
                         epoch = None,
@@ -97,7 +97,7 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
         categorical random variable. It must take in a one-hot-encoding
         matrix (batchsize x n_categories) and return a vector of
         losses, one for each observation in the batch.
-    log_class_weights : torch.Tensor
+    class_weights : torch.Tensor
         A tensor of shape batchsize x n_categories of the log class weights
     topk : Integer
         The number of categories to sum over
@@ -122,8 +122,8 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
     """
 
     # class weights from the variational distribution
-    assert np.all(log_class_weights.detach().cpu().numpy() <= 0)
-    class_weights = torch.exp(log_class_weights.detach())
+    assert np.all(class_weights.detach().cpu().numpy() >= 0)
+    # class_weights = torch.exp(class_weights.detach())
 
     # this is the indicator C_k
     concentrated_mask, topk_domain, seq_tensor = \
@@ -140,7 +140,7 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
 
         # compute gradient estimate
         grad_summed = \
-                grad_estimator(conditional_loss_fun, log_class_weights,
+                grad_estimator(conditional_loss_fun, class_weights,
                                class_weights, seq_tensor, \
                                z_sample = summed_indx,
                                epoch = epoch,
@@ -175,7 +175,7 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, log_class_weights, topk,
         # sample from conditional distribution
         conditional_z_sample = sample_class_weights(conditional_class_weights)
 
-        grad_sampled = grad_estimator(conditional_loss_fun, log_class_weights,
+        grad_sampled = grad_estimator(conditional_loss_fun, class_weights,
                                 class_weights, seq_tensor,
                                 z_sample = conditional_z_sample,
                                 epoch = epoch,

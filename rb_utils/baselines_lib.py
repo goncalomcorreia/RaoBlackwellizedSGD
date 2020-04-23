@@ -17,12 +17,19 @@ import gumbel_softmax_lib
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def get_reinforce_grad_sample(conditional_loss, log_class_weights,
+def get_reinforce_grad_sample(conditional_loss, class_weights,
                                 baseline = 0.0):
     # computes the REINFORCE gradient estimate
-    assert len(conditional_loss) == len(log_class_weights)
+    assert len(conditional_loss) == len(class_weights)
 
-    return (conditional_loss - baseline).detach() * log_class_weights
+    nz = (class_weights > 0).to(class_weights.device)
+
+    out = torch.where(
+                nz,
+                (conditional_loss - baseline).detach() * torch.log(class_weights),
+                torch.tensor(0., device=class_weights.device, dtype=torch.float))
+
+    return out
 
 
 """
@@ -63,30 +70,30 @@ ps_loss :
     In general, ps_loss might not equal the actual loss.
 """
 
-def reinforce(conditional_loss_fun, log_class_weights,
+def reinforce(conditional_loss_fun, class_weights,
                 class_weights_detached, seq_tensor,
                 z_sample, epoch, data, grad_estimator_kwargs = None):
     # z_sample should be a vector of categories
     # conditional_loss_fun is a function that takes in a one hot encoding
     # of z and returns the loss
 
-    assert len(z_sample) == log_class_weights.shape[0]
+    assert len(z_sample) == class_weights.shape[0]
 
     # compute loss from those categories
-    n_classes = log_class_weights.shape[1]
+    n_classes = class_weights.shape[1]
     one_hot_z_sample = get_one_hot_encoding_from_int(z_sample, n_classes)
     conditional_loss_fun_i = conditional_loss_fun(one_hot_z_sample)
-    assert len(conditional_loss_fun_i) == log_class_weights.shape[0]
+    assert len(conditional_loss_fun_i) == class_weights.shape[0]
 
     # get log class_weights
-    log_class_weights_i = log_class_weights[seq_tensor, z_sample]
+    class_weights_i = class_weights[seq_tensor, z_sample]
 
     return get_reinforce_grad_sample(conditional_loss_fun_i,
-                    log_class_weights_i, baseline = 0.0) + \
+                    class_weights_i, baseline = 0.0) + \
                         conditional_loss_fun_i
 
 def reinforce_w_double_sample_baseline(\
-            conditional_loss_fun, log_class_weights,
+            conditional_loss_fun, class_weights,
             class_weights_detached, seq_tensor, z_sample,
             epoch, data,
             grad_estimator_kwargs = None):
@@ -94,16 +101,16 @@ def reinforce_w_double_sample_baseline(\
     # where we use a second, independent sample from the discrete distribution
     # to use as a baseline
 
-    assert len(z_sample) == log_class_weights.shape[0]
+    assert len(z_sample) == class_weights.shape[0]
 
     # compute loss from those categories
-    n_classes = log_class_weights.shape[1]
+    n_classes = class_weights.shape[1]
     one_hot_z_sample = get_one_hot_encoding_from_int(z_sample, n_classes)
     conditional_loss_fun_i = conditional_loss_fun(one_hot_z_sample)
-    assert len(conditional_loss_fun_i) == log_class_weights.shape[0]
+    assert len(conditional_loss_fun_i) == class_weights.shape[0]
 
     # get log class_weights
-    log_class_weights_i = log_class_weights[seq_tensor, z_sample]
+    class_weights_i = class_weights[seq_tensor, z_sample]
 
     # get baseline
     z_sample2 = sample_class_weights(class_weights_detached)
@@ -111,7 +118,7 @@ def reinforce_w_double_sample_baseline(\
     baseline = conditional_loss_fun(one_hot_z_sample2)
 
     return get_reinforce_grad_sample(conditional_loss_fun_i,
-                    log_class_weights_i, baseline) + conditional_loss_fun_i
+                    class_weights_i, baseline) + conditional_loss_fun_i
 
 class RELAXBaseline(nn.Module):
     def __init__(self, input_dim):
@@ -134,7 +141,7 @@ class RELAXBaseline(nn.Module):
 
         return h
 
-def relax(conditional_loss_fun, log_class_weights,
+def relax(conditional_loss_fun, class_weights,
             class_weights_detached, seq_tensor, z_sample,
             epoch, data,
             temperature = torch.Tensor([1.0]),
@@ -143,6 +150,7 @@ def relax(conditional_loss_fun, log_class_weights,
     # with the default c_phi value, this is just REBAR
     # RELAX adds a learned component c_phi
 
+    log_class_weights = torch.log(class_weights)
     # sample gumbel
     gumbel_sample = log_class_weights + \
         gumbel_softmax_lib.sample_gumbel(log_class_weights.size())
@@ -187,12 +195,13 @@ def relax(conditional_loss_fun, log_class_weights,
 
     return reinforce_term + correction_term + f_z_hard
 
-def gumbel(conditional_loss_fun, log_class_weights,
+def gumbel(conditional_loss_fun, class_weights,
             class_weights_detached, seq_tensor, z_sample,
             epoch, data,
             annealing_fun,
             straight_through = True):
 
+    log_class_weights = torch.log(class_weights)
     # get temperature
     temperature = annealing_fun(epoch)
 
@@ -238,26 +247,26 @@ class BaselineNN(nn.Module):
         return h
 
 
-def nvil(conditional_loss_fun, log_class_weights,
+def nvil(conditional_loss_fun, class_weights,
             class_weights_detached, seq_tensor, z_sample,
             epoch, data,
             baseline_nn):
 
-    assert len(z_sample) == log_class_weights.shape[0]
+    assert len(z_sample) == class_weights.shape[0]
 
     # compute loss from those categories
-    n_classes = log_class_weights.shape[1]
+    n_classes = class_weights.shape[1]
     one_hot_z_sample = get_one_hot_encoding_from_int(z_sample, n_classes)
     conditional_loss_fun_i = conditional_loss_fun(one_hot_z_sample)
-    assert len(conditional_loss_fun_i) == log_class_weights.shape[0]
+    assert len(conditional_loss_fun_i) == class_weights.shape[0]
 
     # get log class_weights
-    log_class_weights_i = log_class_weights[seq_tensor, z_sample]
+    class_weights_i = class_weights[seq_tensor, z_sample]
 
     # get baseline
     baseline = baseline_nn(data).squeeze()
 
     return get_reinforce_grad_sample(conditional_loss_fun_i,
-                    log_class_weights_i, baseline = baseline) + \
+                    class_weights_i, baseline = baseline) + \
                         conditional_loss_fun_i + \
                         (conditional_loss_fun_i.detach() - baseline)**2
