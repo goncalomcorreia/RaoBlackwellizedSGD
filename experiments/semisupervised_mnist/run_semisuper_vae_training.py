@@ -124,7 +124,7 @@ test_loader = torch.utils.data.DataLoader(
 slen = train_set_labeled[0]['image'].shape[0]
 
 vae, classifier = mnist_vae_lib.get_mnist_vae_and_classifier(
-                        latent_dim = 5,
+                        latent_dim = 8,
                         n_classes = 10,
                         slen = slen)
 

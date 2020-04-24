@@ -24,10 +24,8 @@ def get_reinforce_grad_sample(conditional_loss, class_weights,
 
     nz = (class_weights > 0).to(class_weights.device)
 
-    out = torch.where(
-                nz,
-                (conditional_loss - baseline).detach() * torch.log(class_weights),
-                torch.tensor(0., device=class_weights.device, dtype=torch.float))
+    out = torch.zeros_like(class_weights)
+    out[nz] = (conditional_loss[nz] - baseline).detach() * torch.log(class_weights[nz])
 
     return out
 

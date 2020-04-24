@@ -1,6 +1,8 @@
 # this library contains the functions to evaluate the loss to train a
 # semi-supervised VAE
 
+from functools import partial
+
 import torch
 from torch import optim
 from torch.autograd import grad
@@ -25,31 +27,6 @@ import baselines_lib as bs_lib
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
-def entropy(p):
-    nz = (p > 0).to(p.device)
-
-    eps = torch.finfo(p.dtype).eps
-    p_stable = p.clone().clamp(min=eps, max=1 - eps)
-
-    out = torch.where(
-        nz,
-        p_stable * torch.log(p_stable),
-        torch.tensor(0., device=p.device, dtype=torch.float))
-
-    return -(out).sum(-1)
-
-def kl_divergence(p_dist, q_dist):
-    entropy_term = entropy(p_dist)
-
-    nz = q_dist > 0
-    eps = torch.finfo(q_dist.dtype).eps
-    q_dist_stable = q_dist.clone().clamp(min=eps, max=1 - eps)
-    cross_term = torch.where(
-        nz,
-        p_dist * torch.log(q_dist_stable),
-        torch.tensor(0., device=q_dist.device, dtype=torch.float))
-    return - (entropy_term + cross_term.sum(-1))
 
 def get_correct_classifier(image, true_labels, n_classes, fudge_factor = 1e-12):
     # for debugging only: returns q with mass on the correct label
@@ -157,8 +134,8 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
 
             unlabeled_ps_loss = unlabeled_ps_loss / max(n_samples, 1)
 
-            kl_q = - torch.sum(entropy(class_weights))
-            # kl_q = torch.sum(torch.exp(log_q) * log_q)
+            nz = (class_weights > 0).to(class_weights.device)
+            kl_q = torch.sum(class_weights[nz] * torch.log(class_weights[nz]))
 
             total_ps_loss = \
                 (unlabeled_ps_loss + kl_q) * train_labeled_only_bool * \
@@ -243,17 +220,17 @@ def train_semisuper_vae(vae, classifier,
         t0 = time.time()
 
         loss = eval_semisuper_vae(vae, classifier, train_loader, super_loss,
-                            loader_labeled = loader_labeled,
-                            topk = topk,
-                            n_samples = n_samples,
-                            grad_estimator = grad_estimator,
-                            grad_estimator_kwargs = grad_estimator_kwargs,
-                            train = True,
-                            optimizer = optimizer,
-                            train_labeled_only = train_labeled_only,
-                            epoch = epoch,
-                            baseline_optimizer = baseline_optimizer,
-                            normalizer=normalizer)
+                                  loader_labeled = loader_labeled,
+                                  topk = topk,
+                                  n_samples = n_samples,
+                                  grad_estimator = grad_estimator,
+                                  grad_estimator_kwargs = grad_estimator_kwargs,
+                                  train = True,
+                                  optimizer = optimizer,
+                                  train_labeled_only = train_labeled_only,
+                                  epoch = epoch,
+                                  baseline_optimizer = baseline_optimizer,
+                                  normalizer=normalizer)
 
         elapsed = time.time() - t0
         print('[{}] unlabeled_loss: {:.10g}  \t[{:.1f} seconds]'.format(\

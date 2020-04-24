@@ -124,10 +124,11 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, class_weights, topk,
     # class weights from the variational distribution
     assert np.all(class_weights.detach().cpu().numpy() >= 0)
     # class_weights = torch.exp(class_weights.detach())
+    class_weights_detached = class_weights.detach()
 
     # this is the indicator C_k
     concentrated_mask, topk_domain, seq_tensor = \
-        get_concentrated_mask(class_weights, topk)
+        get_concentrated_mask(class_weights_detached, topk)
     concentrated_mask = concentrated_mask.float().detach()
 
     ############################
@@ -141,53 +142,41 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, class_weights, topk,
         # compute gradient estimate
         grad_summed = \
                 grad_estimator(conditional_loss_fun, class_weights,
-                               class_weights, seq_tensor, \
+                               class_weights_detached, seq_tensor, \
                                z_sample = summed_indx,
                                epoch = epoch,
                                data = data,
                                **grad_estimator_kwargs)
 
         # sum
-        summed_weights = class_weights[seq_tensor, summed_indx].squeeze()
-        # watch out for zero * -inf. we want that to be 0
-        nz = (summed_weights > 0).to(summed_weights.device)
-        summed_term_aux = torch.where(
-                nz,
-                grad_summed * summed_weights,
-                torch.tensor(0., device=summed_weights.device, dtype=torch.float))
-
+        summed_weights = class_weights_detached[seq_tensor, summed_indx].squeeze()
         summed_term = summed_term + \
-                        (summed_term_aux).sum()
+                        (grad_summed * summed_weights).sum()
 
     ############################
     # compute sampled term
-    sampled_weight = torch.sum(class_weights * (1 - concentrated_mask), dim = 1,
-                                keepdim = True)
+    sampled_weight = torch.sum(class_weights_detached * (1 - concentrated_mask), dim = 1,
+                               keepdim = True)
 
-    if not(topk == class_weights.shape[1]):
+    if not(topk == class_weights.shape[1]) and torch.any(sampled_weight > 0):
         # if we didn't sum everything
         # we sample from the remaining terms
 
         # class weights conditioned on being in the diffuse set
-        conditional_class_weights = (class_weights + 1e-12) * \
-                    (1 - concentrated_mask)  / (sampled_weight + 1e-12)
+        conditional_class_weights = \
+            (class_weights_detached + 1e-12) * \
+            (1 - concentrated_mask) / (sampled_weight + 1e-12)
 
         # sample from conditional distribution
         conditional_z_sample = sample_class_weights(conditional_class_weights)
 
         grad_sampled = grad_estimator(conditional_loss_fun, class_weights,
-                                class_weights, seq_tensor,
-                                z_sample = conditional_z_sample,
-                                epoch = epoch,
-                                data = data,
-                                **grad_estimator_kwargs)
+                                      class_weights_detached, seq_tensor,
+                                      z_sample = conditional_z_sample,
+                                      epoch = epoch,
+                                      data = data,
+                                      **grad_estimator_kwargs)
     else:
         grad_sampled = 0.
 
-    nz = (sampled_weight.squeeze() > 0).to(sampled_weight.device)
-    grad_term_aux = torch.where(
-            nz,
-            grad_sampled * sampled_weight.squeeze(),
-            torch.tensor(0., device=summed_weights.device, dtype=torch.float))
-    return (grad_term_aux).sum() + summed_term
-
+    return (grad_sampled * sampled_weight.squeeze()).sum() + summed_term
