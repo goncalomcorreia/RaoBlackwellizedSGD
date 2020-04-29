@@ -73,6 +73,7 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
 
     sum_loss = 0.0
     num_images = 0.0
+    total_nz = 0.0
 
     for labeled_data, unlabeled_data in zip(cycle(loader_labeled), \
                                                 loader_unlabeled):
@@ -107,6 +108,9 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
         else:
             raise NameError("%s is not a valid normalizer!" % (normalizer, ))
 
+        # get a mask of nonzeros
+        nz = (class_weights > 0).to(class_weights.device)
+
         if train:
 
             train_labeled_only_bool = 1.
@@ -134,7 +138,6 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
 
             unlabeled_ps_loss = unlabeled_ps_loss / max(n_samples, 1)
 
-            nz = (class_weights > 0).to(class_weights.device)
             kl_q = torch.sum(class_weights[nz] * torch.log(class_weights[nz]))
 
             total_ps_loss = \
@@ -166,7 +169,9 @@ def eval_semisuper_vae(vae, classifier, loader_unlabeled, super_loss,
         sum_loss += loss
         num_images += unlabeled_image.shape[0]
 
-    return sum_loss / num_images
+        total_nz += nz.sum().item()
+
+    return sum_loss / num_images, total_nz / num_images
 
 
 def train_semisuper_vae(vae, classifier,
@@ -194,22 +199,25 @@ def train_semisuper_vae(vae, classifier,
         raise NameError("%s is not a valid normalizer!" % (normalizer, ))
 
     # initial losses
-    init_train_loss = eval_semisuper_vae(vae, classifier, train_loader, super_loss, normalizer=normalizer)
+    init_train_loss, init_train_nz = eval_semisuper_vae(vae, classifier, train_loader, super_loss, normalizer=normalizer)
     init_train_accuracy = vae_utils.get_classification_accuracy(classifier, train_loader)
-    print('init train loss: {} || init train accuracy: {}'.format(
-                init_train_loss, init_train_accuracy))
+    print('init train loss: {} || init train accuracy: {} || init train supp.: {}'.format(
+                init_train_loss, init_train_accuracy, init_train_nz))
 
     train_loss_array = [init_train_loss]
     batch_losses = [init_train_loss]
     train_accuracy_array = [init_train_accuracy]
+    batch_nzs = [init_train_nz]
+    train_nz_array = [init_train_nz]
 
-    init_test_loss = eval_semisuper_vae(vae, classifier, test_loader, super_loss, normalizer=normalizer)
+    init_test_loss, init_test_nz = eval_semisuper_vae(vae, classifier, test_loader, super_loss, normalizer=normalizer)
     init_test_accuracy = vae_utils.get_classification_accuracy(classifier, test_loader)
-    print('init test loss: {} || init test accuracy: {}'.format(
-                init_test_loss, init_test_accuracy))
+    print('init test loss: {} || init test accuracy: {} || init test supp.: {}'.format(
+                init_test_loss, init_test_accuracy, init_test_nz))
 
     test_loss_array = [init_test_loss]
     test_accuracy_array = [init_test_accuracy]
+    test_nz_array = [init_test_nz]
 
     epoch_start = 1
     t0 = time.time()
@@ -219,42 +227,52 @@ def train_semisuper_vae(vae, classifier,
 
         t0 = time.time()
 
-        loss = eval_semisuper_vae(vae, classifier, train_loader, super_loss,
-                                  loader_labeled = loader_labeled,
-                                  topk = topk,
-                                  n_samples = n_samples,
-                                  grad_estimator = grad_estimator,
-                                  grad_estimator_kwargs = grad_estimator_kwargs,
-                                  train = True,
-                                  optimizer = optimizer,
-                                  train_labeled_only = train_labeled_only,
-                                  epoch = epoch,
-                                  baseline_optimizer = baseline_optimizer,
-                                  normalizer=normalizer)
+        loss, avg_epoch_nz = eval_semisuper_vae(
+            vae, classifier, train_loader, super_loss,
+            loader_labeled = loader_labeled,
+            topk = topk,
+            n_samples = n_samples,
+            grad_estimator = grad_estimator,
+            grad_estimator_kwargs = grad_estimator_kwargs,
+            train = True,
+            optimizer = optimizer,
+            train_labeled_only = train_labeled_only,
+            epoch = epoch,
+            baseline_optimizer = baseline_optimizer,
+            normalizer=normalizer)
 
         elapsed = time.time() - t0
-        print('[{}] unlabeled_loss: {:.10g}  \t[{:.1f} seconds]'.format(\
-                    epoch, loss, elapsed))
+        print('[{}] unlabeled_loss: {:.10g}, supp.: {:.4f}  \t[{:.1f} seconds]'.format(\
+                    epoch, loss, avg_epoch_nz, elapsed))
         batch_losses.append(loss)
         batch_timing.append(elapsed)
+        batch_nzs.append(avg_epoch_nz)
 
         np.save(outfile + '_batch_losses', torch.stack(batch_losses).cpu().numpy())
         np.save(outfile + '_batch_timing', np.array(batch_timing))
+        np.save(outfile + '_batch_nzs', np.array(batch_nzs))
 
         # print stuff
         if epoch % print_every == 0:
             # save the checkpoint.
-            train_loss = eval_semisuper_vae(vae, classifier, train_loader, super_loss, normalizer=normalizer)
-            test_loss = eval_semisuper_vae(vae, classifier, test_loader, super_loss, normalizer=normalizer)
+            train_loss, train_nz = eval_semisuper_vae(vae, classifier, train_loader, super_loss, normalizer=normalizer)
+            test_loss, test_nz = eval_semisuper_vae(vae, classifier, test_loader, super_loss, normalizer=normalizer)
 
-            print('train loss: {}'.format(train_loss) + \
-                    ' || test loss: {}'.format(test_loss))
+            print(
+                'train loss: {}'.format(train_loss) + \
+                ' || test loss: {}'.format(test_loss) + \
+                ' || train supp.: {}'.format(train_nz) + \
+                ' || test supp.: {}'.format(test_nz))
 
             train_loss_array.append(train_loss)
             test_loss_array.append(test_loss)
             np.save(outfile + '_train_losses', torch.stack(train_loss_array).cpu().numpy())
             np.save(outfile + '_test_losses', torch.stack(test_loss_array).cpu().numpy())
 
+            train_nz_array.append(train_nz)
+            test_nz_array.append(test_nz)
+            np.save(outfile + '_train_nzs', np.array(train_nz_array))
+            np.save(outfile + '_test_nzs', np.array(test_nz_array))
 
             train_accuracy = vae_utils.get_classification_accuracy(classifier, train_loader)
             test_accuracy = vae_utils.get_classification_accuracy(classifier, test_loader)
