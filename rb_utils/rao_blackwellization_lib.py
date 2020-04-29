@@ -38,14 +38,14 @@ def get_concentrated_mask(class_weights, topk):
     seq_tensor = torch.LongTensor([i for i in range(class_weights.shape[0])])
 
     if topk > 0:
-        _, topk_domain = torch.topk(class_weights, topk)
+        topk_probs, topk_domain = torch.topk(class_weights, topk)
 
         for i in range(topk):
             mask_topk[seq_tensor, topk_domain[:, i]] = 1
     else:
         topk_domain = None
 
-    return mask_topk, topk_domain, seq_tensor
+    return mask_topk, topk_probs, topk_domain, seq_tensor
 
 def get_full_loss(conditional_loss_fun, class_weights):
     """
@@ -127,7 +127,7 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, class_weights, topk,
     class_weights_detached = class_weights.detach()
 
     # this is the indicator C_k
-    concentrated_mask, topk_domain, seq_tensor = \
+    concentrated_mask, topk_probs, topk_domain, seq_tensor = \
         get_concentrated_mask(class_weights_detached, topk)
     concentrated_mask = concentrated_mask.float().detach()
 
@@ -136,6 +136,11 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, class_weights, topk,
     summed_term = 0.0
 
     for i in range(topk):
+        
+        # stop computations when all batch elements have 0 probability
+        if torch.all(topk_probs[:, i] == 0.):
+            break
+
         # get categories to be summed
         summed_indx = topk_domain[:, i]
 
