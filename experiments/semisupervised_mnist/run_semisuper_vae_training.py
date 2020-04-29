@@ -79,6 +79,11 @@ parser.add_argument('--classifier_init_file',
 # Other params
 parser.add_argument('--seed', type=int, default=4254,
                     help='random seed')
+parser.add_argument('--one_of_each',
+                    type=distutils.util.strtobool, default='False',
+                    help='whether to only train with one of each digits supervised')
+parser.add_argument('--n_labeled', type = int, default = 5000,
+                    help='number of labeled MNIST in the train set (default = 5000)')
 
 
 # Gradient parameters
@@ -91,8 +96,13 @@ print('learning rate', args.learning_rate)
 assert os.path.exists(args.outdir)
 
 print('seed: ', args.seed)
-np.random.seed(args.seed)
 _ = torch.manual_seed(args.seed)
+np.random.seed(args.seed)
+# some cudnn methods can be random even after fixing the seed
+# unless you tell it to be deterministic
+torch.backends.cudnn.deterministic = True
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(args.seed)
 
 # get data
 # train sets
@@ -100,7 +110,9 @@ train_set_labeled, train_set_unlabeled, test_set = \
         mnist_data_lib.get_mnist_dataset_semisupervised(
                             data_dir = '../mnist_data/',
                             train_test_split_folder = '../test_train_splits/',
-                            eval_test_set = args.eval_test_set)
+                            eval_test_set = args.eval_test_set,
+                            n_labeled = args.n_labeled,
+                            one_of_each = args.one_of_each)
 
 train_loader_labeled = torch.utils.data.DataLoader(
                  dataset=train_set_labeled,
