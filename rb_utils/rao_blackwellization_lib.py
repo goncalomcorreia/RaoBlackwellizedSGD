@@ -168,10 +168,11 @@ def get_raoblackwell_ps_loss(conditional_loss_fun, class_weights, topk,
         # we sample from the remaining terms
 
         # class weights conditioned on being in the diffuse set
-        conditional_class_weights = \
-            (class_weights_detached + 1e-12) * \
-            (1 - concentrated_mask) / (sampled_weight + 1e-12)
-
+        nz_mask = (class_weights_detached * (1 - concentrated_mask)).sum(1) != 0
+        conditional_class_weights = torch.zeros_like(class_weights_detached)
+        conditional_class_weights[nz_mask] += \
+            class_weights_detached[nz_mask] * (1 - concentrated_mask[nz_mask]) / \
+            sampled_weight[nz_mask]
         # sample from conditional distribution
         conditional_z_sample = sample_class_weights(conditional_class_weights)
 

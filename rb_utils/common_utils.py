@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from torch.distributions import Categorical
 
@@ -32,8 +33,12 @@ def sample_class_weights(class_weights):
     probabilities class_weights
     """
 
-    # draw a sample from Categorical variable with
-    # probabilities class_weights
+    nz_mask = class_weights.sum(1) != 0
+    samples = torch.zeros(nz_mask.shape, dtype=torch.long)
+    for i, elem in enumerate(nz_mask):
+        if elem:
+            samples[i] = np.random.choice(
+                torch.arange(class_weights.shape[1]),
+                p=class_weights[i].cpu().numpy())
 
-    cat_rv = Categorical(probs = class_weights)
-    return cat_rv.sample().detach()
+    return samples.to(class_weights.device).detach()
